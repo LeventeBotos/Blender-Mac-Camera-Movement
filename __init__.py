@@ -1,29 +1,28 @@
 bl_info = {
-    "name": "Perfect FPS Camera Navigation (macOS ready)",
+    "name": "Camera Navigation (macOS Optimized)",
     "blender": (3, 0, 0),
     "category": "3D View",
-    "version": (1, 0),
     "author": "Levente Botos",
-    "description": "Smooth WASD + mouse FPS-style navigation with sprint, crouch, cursor lock, and scroll speed control",
+    "description": "Smooth WASD + mouse/trackpad FPS-style navigation, optimized for macOS",
+    "version": (1, 1),
 }
 
 import bpy
 from bpy.types import Operator
-from mathutils import Vector
+from mathutils import Vector, Quaternion
 import time
 
 
 class VIEW3D_OT_fps_navigation(Operator):
-    bl_idname = "view3d.perfect_fps_navigation"
-    bl_label = "Perfect FPS Navigation"
+    bl_idname = "view3d.fps_navigation_mac"
+    bl_label = "FPS Navigation (macOS)"
     bl_options = {"REGISTER", "GRAB_CURSOR", "BLOCKING"}
 
-    # Settings
-    base_speed: float = 0.15
-    sensitivity: float = 0.002
-    boost_factor: float = 3.0
-    slow_factor: float = 0.3
-    smoothing: float = 0.2
+    base_speed: float = 0.08    # slower default for Mac trackpads
+    sensitivity: float = 0.0015 # lower sensitivity (trackpads are more sensitive)
+    boost_factor: float = 2.5   # sprint multiplier
+    slow_factor: float = 0.4    # crouch multiplier
+    smoothing: float = 0.25     # movement smoothing
 
     def __init__(self):
         self.velocity = Vector((0, 0, 0))
@@ -40,20 +39,23 @@ class VIEW3D_OT_fps_navigation(Operator):
             context.window.cursor_modal_restore()
             return {"CANCELLED"}
 
-        # Adjust speed with scroll (trackpad two-finger scroll or mouse wheel)
-        if event.type in {"WHEELUPMOUSE"} and event.value == "PRESS":
+        # Adjust speed with trackpad scroll
+        if event.type == "WHEELUPMOUSE" and event.value == "PRESS":
             self.base_speed *= 1.1
-        if event.type in {"WHEELDOWNMOUSE"} and event.value == "PRESS":
+        if event.type == "WHEELDOWNMOUSE" and event.value == "PRESS":
             self.base_speed *= 0.9
 
-        # Mouse look
+        # Mouse / Trackpad look
         if event.type == "MOUSEMOVE":
             dx = event.mouse_prev_x - event.mouse_x
             dy = event.mouse_prev_y - event.mouse_y
-            rv3d.view_rotation.rotate_axis("Z", dx * self.sensitivity)
-            rv3d.view_rotation.rotate_axis("X", dy * self.sensitivity)
 
-        # Movement directions
+            # yaw around global Z (smooth)
+            rv3d.view_rotation = Quaternion((0, 0, 1), dx * self.sensitivity) @ rv3d.view_rotation
+            # pitch around local X (inverted for natural feel on trackpad)
+            rv3d.view_rotation = Quaternion((1, 0, 0), -dy * self.sensitivity) @ rv3d.view_rotation
+
+        # Movement vectors
         forward = rv3d.view_rotation @ Vector((0, 0, -1))
         right = rv3d.view_rotation @ Vector((1, 0, 0))
         up = Vector((0, 0, 1))
@@ -62,10 +64,10 @@ class VIEW3D_OT_fps_navigation(Operator):
         speed = self.base_speed
         if event.shift:  # sprint
             speed *= self.boost_factor
-        if event.alt:  # crouch/slow
+        if event.alt:    # crouch
             speed *= self.slow_factor
 
-        # Key input vector
+        # Key input
         move = Vector((0, 0, 0))
         if event.type == "W": move += forward
         if event.type == "S": move -= forward
@@ -74,29 +76,26 @@ class VIEW3D_OT_fps_navigation(Operator):
         if event.type == "E": move += up
         if event.type == "Q": move -= up
 
-        # Normalize
+        # Normalize & apply smoothing
         if move.length > 0:
             move.normalize()
             target_vel = move * speed
         else:
             target_vel = Vector((0, 0, 0))
 
-        # Smooth acceleration
         self.velocity = self.velocity.lerp(target_vel, self.smoothing)
-
-        # Apply movement
-        rv3d.view_location += self.velocity * (dt * 60)  # scale with frame time
+        rv3d.view_location += self.velocity * (dt * 60)
 
         return {"RUNNING_MODAL"}
 
     def invoke(self, context, event):
-        context.window.cursor_modal_set("NONE")  # lock cursor
+        context.window.cursor_modal_set("NONE")  # lock cursor to center
         context.window_manager.modal_handler_add(self)
         return {"RUNNING_MODAL"}
 
 
 def menu_func(self, context):
-    self.layout.operator(VIEW3D_OT_fps_navigation.bl_idname)
+    self.layout.operator(VIEW3D_OT_fps_navigation.bl_idname, text="FPS Navigation (macOS)")
 
 
 def register():
